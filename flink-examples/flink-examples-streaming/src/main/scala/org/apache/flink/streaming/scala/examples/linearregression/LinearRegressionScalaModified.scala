@@ -134,9 +134,9 @@ object LinearRegressionScalaModified {
         env.getCheckpointConfig.setCheckpointTimeout(500)
         env.getCheckpointConfig.setMaxConcurrentCheckpoints(1)
         //env.setre(RestartStrategies.fixedDelay(
-        3, // number of restart attempts
-        10000 // delay in milliseconds
-        ))
+        //3, // number of restart attempts
+        //10000 // delay in milliseconds
+        //))
       }
       //LinearRegressionData.DATA -> returns object[][] where obj ={double, double}
       val typedList: Array[Either[Data, Params]] = LinearRegressionData.DATA
