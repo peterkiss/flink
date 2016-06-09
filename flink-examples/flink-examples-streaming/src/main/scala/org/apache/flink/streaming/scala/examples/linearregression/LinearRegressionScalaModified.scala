@@ -50,9 +50,10 @@
 package org.apache.flink.streaming.scala.examples.linearregression
 
 import java.lang.Iterable
-import java.util.logging.{FileHandler, Logger}
+import java.util.logging.{FileHandler, Logger,Level}
 
 import org.apache.flink.api.common.functions._
+import org.apache.flink.api.common.restartstrategy.RestartStrategies
 import org.apache.flink.streaming.api.checkpoint.Checkpointed
 
 //import org.apache.flink.streaming.api.functions.co.CoMapFunction
@@ -85,34 +86,38 @@ object LinearRegressionScalaModified {
 
 
 
-  private val windowsizeInMillis = 1000
-  private val timeOutInMillis = 20000000000L
-  private val learningrate = 0.001
+  private val code = "IFT_CHP_F"
+  private val windowsizeInMillis = 500
+  private val timeOutInMillis = 60000000000L
+  private val learningrate = 0.0005
   private val accuracy = 0.1
-  private val checkpointing = false
-  private val intendedfailures = false
-  private val failureFrequencyInMillis = 1000
-  private val checkpointingFrequencyInMillis = 1000
+  private val checkpointing = true
+  private val intendedfailures = true
+  private val failureFrequencyInMillis = 1000.
+  private val checkpointingFrequencyInMillis = 750.
 
+  case class IntendedFailure(message : String) extends Exception(message)
   case class Termination(message : String) extends Exception(message)
   case class TimeOut(message : String) extends Exception(message)
   ////
   def main (args: Array[String]){
-    val fh = new FileHandler("/home/kiss/log/test.log")
+    val fh = new FileHandler("/home/kiss/log/test"+code+".log")
     LOG.addHandler(fh)
-    LOG.info("Windowsize = "+windowsizeInMillis / 1000 + "sec(s)\n"
+    LOG.setLevel(Level.INFO);
+    LOG.info("TEST WITH ITERATIVE FT, CHECKPOINTING AND FAILURES\n" +
+      "Windowsize = "+windowsizeInMillis.asInstanceOf[Double] / 1000 + "sec(s)\n"
       +"LearningRate = "+ learningrate+"\n"
-      +"Accuracy = "+accuracy
-      +"checkpointing = "+checkpointing +"sec(s)\n"
-      +"intendedfailures = "+intendedfailures  + "sec(s)\n"
-      +"failureFrequencyInMillis = "+failureFrequencyInMillis / 1000 + "sec(s)\n"
-      +"checkpointingFrequencyInMillis = "+checkpointingFrequencyInMillis / 1000 + "sec(s)\n"
-      +"Windowsize = "+windowsizeInMillis / 1000 + "sec(s)\n")
+      +"Accuracy = "+accuracy+"\n"
+      +"checkpointing = "+checkpointing +"\n"
+      +"intendedfailures = "+intendedfailures  + "\n"
+      +"failureFrequencyInMillis = "+failureFrequencyInMillis.asInstanceOf[Double] / 1000 + "sec(s)\n"
+      +"checkpointingFrequencyInMillis = "+checkpointingFrequencyInMillis.asInstanceOf[Double] / 1000 + "sec(s)\n"
+     )
     var i = 0
     for(  i <- (1 to 10))
     {
 
-      val y = LRTask
+      val y = LRTask(i)
       LOG.info(y.toString)
 
 
@@ -123,22 +128,25 @@ object LinearRegressionScalaModified {
   //     DATA TYPES
   // *************************************************************************
 
-  def LRTask: Int = {
+  def LRTask(taskcounter :Int): Int = {
     // set up execution environment
     try{
       t0 = System.nanoTime()
+
       val env = StreamExecutionEnvironment.getExecutionEnvironment
       if(checkpointing) {
-        env.enableCheckpointing(500)
+        env.enableCheckpointing(800)
         env.getCheckpointConfig.setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE)
         env.getCheckpointConfig.setCheckpointTimeout(500)
-        env.getCheckpointConfig.setMaxConcurrentCheckpoints(1)
-        //env.setre(RestartStrategies.fixedDelay(
-        //3, // number of restart attempts
-        //10000 // delay in milliseconds
-        //))
+        env.getCheckpointConfig.setMaxConcurrentCheckpoints(3)
+        env.setRestartStrategy(RestartStrategies.fixedDelayRestart(
+        20, // number of restart attempts
+        0 // delay in milliseconds
+        ))
       }
       //LinearRegressionData.DATA -> returns object[][] where obj ={double, double}
+      dataCounter.clear()
+      LOG.info("======================ROUND NO "+taskcounter+"======================")
       val typedList: Array[Either[Data, Params]] = LinearRegressionData.DATA
         .map(pair => Data(pair(0).toString.toDouble, pair(1).toString.toDouble)) // convert double pairs to DATA
         .map(Left(_)) // typedlist only contains these pairs
@@ -200,11 +208,19 @@ object LinearRegressionScalaModified {
       0
     }
     catch {
-      case ex: Termination=>{LOG.info(ex.getMessage); 1};
-
-      case ex: TimeOut=>{LOG.info(ex.getMessage);2};
-
       case ex: Exception => 1;
+      //never get here :( FT catches everything
+     /* case Termination(msg)=>
+        {LOG.info("CATCHED!!!!!");LOG.info("Catched : "+msg); 1}
+      case TimeOut(msg)=>
+        {LOG.info("CATCHED!!!!!");LOG.info("Catched : "+msg); 2}
+      case IntendedFailure(msg)=>
+        {LOG.info("DIDNT CATCH!!!!!");LOG.info("Catched : "+msg); 3}*/
+     // case ex: Termination=>{LOG.info(ex.getMessage); 1};
+
+     // case ex: TimeOut=>{LOG.info(ex.getMessage);2};
+
+     // case ex: Exception => 1;
     }
     //  System.out.println(env.getExecutionPlan)
   }
@@ -279,13 +295,13 @@ object LinearRegressionScalaModified {
           collector.collect(parameter1, count)
           val  elapsedTime = (System.nanoTime() - t0)
           if (intendedfailures) {
-            val periodeTime = elapsedTime % failureFrequencyInMillis
-            if (rnd == null)
-              rnd = new Random()
-            if (failureCounter<failureCount && rnd.nextInt(10) < 1 && periodeTime<500000000L ) {
+            val periodeTime = elapsedTime % (failureFrequencyInMillis*1000000)
+           /* if (rnd == null)
+              rnd = new Random()*/
+            if (/*failureCounter<failureCount && rnd.nextInt(10) < 1 && */periodeTime<1000000000L && periodeTime>950000000L ) {
               failureCounter = failureCounter + 1
-              LOG.info("INTENDED EXCEPTION: NO "+failureCounter+"Elapsed time: "+(System.nanoTime() - t0)+" Parameter: "+parameter )
-              throw new Exception("intended exception")
+              LOG.info("Logging:... INTENDED EXCEPTION  -- Elapsed time: "+(System.nanoTime() - t0).asInstanceOf[Double]/ 1000000000+" Parameter: "+parameter )
+              throw new IntendedFailure("intended exception")
             }
           }
         }
@@ -294,7 +310,7 @@ object LinearRegressionScalaModified {
           println ("Received Parameter delta  = "+ param)
           val difference1 = Math.sqrt( ( parameter.theta0 - 0)*(parameter.theta0 - 0))
           val difference2 = Math.sqrt((parameter.theta1 - 2)*(parameter.theta1 - 2))
-          val estimatedTime = System.nanoTime() - t0
+          val estimatedTime = (System.nanoTime() - t0).asInstanceOf[Double]/1000000000
           if ((difference1 < accuracy) && (difference2 < accuracy)) {
             val res = ("CONVERGENCE - Execution time = "+estimatedTime +" " +dataCounter.toString() + "\n")
             LOG.info(res + parameter.theta0.toString + " " + parameter.theta1.toString + " " + difference1 + " " + difference2)
@@ -310,7 +326,7 @@ object LinearRegressionScalaModified {
 
           // println ("Difference :"+difference)
           parameter = new Params(( parameter.theta0-learningrate*param.theta0 ),(parameter.theta1- learningrate*param.theta1 ))
-          LOG.info("New parameter = "+parameter)
+          LOG.fine("New parameter = "+parameter)
           println ("New parameter = "+parameter)
         }
       }
